@@ -1,12 +1,19 @@
-Disclaimer:
- Just a random project. Don't expect much. I'm a terrible programmer.
- needs serious rework if you want to use it in production.
+# Disclaimer
+This is a personal project, not intended for production use. The codebase is in need of significant improvement.
 
-everything should be able to compile with cargo + trunk + python (with duckduckgo_search installed). 
-Ollama is used for the LLM calls. nomic-embed-text for embedding. llama3.1:latest for other stuff.
+## Requirements
+To compile and run this project, you'll need:
+* Cargo
+* Trunk (a Rust build tool)
+* Python with `duckduckgo_search` installed
+* Llama API credentials (using Ollama)
+* Nomic-embed-text for text embedding
 
-What it does (sometimes):
-  asks the llm for search queries related to the question and then forwards them to duckduckgo.
-  Scrapes the sites duckduckgo gives and then uses nomic-embed-text to rank them for relevance.
-  tries to guess wether to give you an LLM answer (example: "how to push to github") or only give you links (example: "github")
-  uses cached and a sqlite db to speed up subsequent queries.
+## Project Description
+This project uses a Large Language Model (LLM) to generate search queries and scrape results from DuckDuckGo. It then ranks the results using nomic-embed-text and decides whether to provide an LLM answer or a list of links.
+
+### Key Features
+* Uses cached and SQLite database for faster subsequent queries
+* Integrates with DuckDuckGo API to fetch search results
+* Employs Nomic-embed-text for text ranking and embedding
+* Decides between providing an LLM answer or a list of links based on the query
