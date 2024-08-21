@@ -8,6 +8,7 @@ To compile and run this project, you'll need:
 * Python with `duckduckgo_search` installed
 * Llama API credentials (using Ollama)
 * Nomic-embed-text for text embedding
+* A system capable of running `playwright`
 
 ## Project Description
 This project uses a Large Language Model (LLM) to generate search queries and scrape results from DuckDuckGo. It then ranks the results using nomic-embed-text and decides whether to provide an LLM answer or a list of links.
