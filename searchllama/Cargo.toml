@@ -1,0 +1,25 @@
+[package]
+name = "searchllama"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "^1", features = ["full"] }
+pyo3 = { version = "^0.22", features = ["auto-initialize"] }
+lazy_static = "^1.4"
+warp = "^0.3"
+sqlx = { version = "^0.7", features = ["runtime-tokio", "sqlite"] }
+cached = { version = "^0.53", features = ["async", "disk_store"] }
+searchllama-types = { path = "../searchllama-types" }
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+env_logger = "^0.11"
+log = "^0.4"
+ollama-rs = { version = "^0.2", features = ["stream"] }
+tqdm = "^0.7"
+reqwest = { version = "^0.11", features = ["json"] }
+bytemuck = "^1.17"
+pollster = "^0.3"
+futures = "^0.3"
+playwright = "^0.0.20"
+async-recursion = "^1.1"
