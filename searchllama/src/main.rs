@@ -13,13 +13,17 @@ use futures::{stream, Stream, StreamExt};
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use ollama_rs::{
-    generation::{completion::request::GenerationRequest, options::GenerationOptions},
+    generation::{
+        completion::{request::GenerationRequest, GenerationContext},
+        images::Image,
+        options::GenerationOptions,
+    },
     Ollama,
 };
 use playwright::{api::BrowserType, Playwright};
 use pollster::FutureExt;
 use search::calculate_entry_similarity;
-use searchllama_types::{Entry, SearchRequest, SearchResponse};
+use searchllama_types::{ChatRequest, ChatResponse, Entry, SearchRequest, SearchResponse};
 use tokio::sync::mpsc::{self, Sender};
 use warp::Filter;
 
@@ -36,6 +40,7 @@ pub const SNIPPET_NUMBER: usize = 10;
 pub const MIN_CONFIDENCE: f64 = 0.72;
 lazy_static! {
     pub static ref G_OLLAMA: Ollama = Ollama::default();
+    pub static ref G_REWEST_CLIENT: reqwest::Client = reqwest::Client::new();
 }
 
 async fn handle_search_request(
@@ -55,6 +60,10 @@ async fn handle_search_request(
         let query = query.clone();
         let mut top_urls = results.clone();
         top_urls.truncate(SNIPPET_NUMBER);
+        let top_url_titles = top_urls
+            .iter()
+            .map(|entry| entry.1.clone())
+            .collect::<Vec<String>>();
         let top_urls = top_urls
             .iter()
             .map(|entry| entry.0.clone())
@@ -155,10 +164,14 @@ If the question is in another language than English, translate it to English fir
 
             info!("Related queries: {:?}", related_queries);
 
-            let best_snippets =
-                search::get_best_matching_snippets(&query_embedding, &top_urls, None)
-                    .await
-                    .expect("Failed to get best snippets");
+            let best_snippets = search::get_best_matching_snippets(
+                &query_embedding,
+                &top_urls,
+                &top_url_titles,
+                None,
+            )
+            .await
+            .expect("Failed to get best matching snippets");
 
             let mean_score = best_snippets
                 .iter()
@@ -179,7 +192,14 @@ If the question is in another language than English, translate it to English fir
                 tokio::spawn(async move {
                     let snippets = best_snippets
                         .iter()
-                        .map(|entry| entry.text.clone())
+                        .map(|entry| {
+                            format!(
+                                "From \"{}\" ![]({}):\n\"{}\"",
+                                entry.title.as_ref().unwrap_or(&String::from("Unkown")),
+                                entry.url.as_ref().unwrap_or(&String::from("Unkown")),
+                                entry.text
+                            )
+                        })
                         .collect::<Vec<String>>();
                     let images = best_snippets
                         .iter()
@@ -187,14 +207,14 @@ If the question is in another language than English, translate it to English fir
                         .flatten()
                         .collect::<Vec<(String, String)>>();
                     let prompt = format!(
-"Sources:\n\"{}\"\n\n
-Images:\n{}\n\n
+                        "Sources:\n\"{}\"\n\n
 Anwer this question: '{}'.",
                         snippets.join("\n\n"),
-                        images
-                            .iter()
-                            .map(|(url, desc)| format!("- {} [{}]\n", url, desc))
-                            .collect::<String>(),
+                        // images
+                        // .iter()
+                        // .rev()
+                        // .map(|(url, desc)| format!("- {}: '{}'\n", desc, url))
+                        // .collect::<String>(),
                         query.query
                     );
 
@@ -210,36 +230,9 @@ Anwer this question: '{}'.",
 "You are a helpful assistant.
 You are given a list of snippets from the internet and a question.
 You must answer the question based on the snippets whithout mentioning that you received snippets from the internet.
-Use correct formatting.
-Examples of correct formatting:
-## Code
-```rust
-fn main() {{
-    println!(\"hello world !\")
-}}
-```
-
-## Math
-1) $1+1=2$
-
-2) $e^{{i\\pi}}+1=0$
-
-3)
-$$\\int_0^{{+\\infty}}\\dfrac{{\\sin(t)}}{{t}}\\,dt=\\dfrac{{\\sqrt{{\\pi}}}}{{2}}$$
-
-## Links and images
-![](https://raw.githubusercontent.com/wooorm/markdown-rs/8924580/media/logo-monochromatic.svg?sanitize=true)
-
-## Style
-| unstyled | styled    |
-| :-----:  | ------    |
-| bold     | **bold**  |
-| italics  | *italics* |
-| strike   | ~strike~  |
-
-> Hey, I am a quote !
-> - I don't like numbers
-Answer with the language used in the question."
+Use correct markdown formatting.
+Answer with the language used in the question.
+only use emojis for country flags."
                                 .to_string()
                         )
                         .options(GenerationOptions::default()),
@@ -247,10 +240,26 @@ Answer with the language used in the question."
 
                     while let Some(response) = response_stream.next().await {
                         if let Ok(response) = response {
-                            let search_response = SearchResponse {
+                            let mut search_response = SearchResponse {
                                 results: Vec::new(),
-                                summary: response.into_iter().map(|s| s.response).collect(),
+                                summary: response.iter().map(|s| s.response.clone()).collect(),
+                                summary_context: None,
                             };
+
+                            // for chunk in &response {
+                            //     if let Some(context) = &chunk.context {
+                            //         info!("Context: {}", context.0.len());
+                            //         search_response.summary_context = Some(context.clone().0);
+                            //     }
+                            // }
+
+                            for chunk in &response {
+                                if chunk.context.is_some() {
+                                    search_response.summary_context = Some(
+                                        chunk.context.as_ref().expect("Context is none").clone().0,
+                                    );
+                                }
+                            }
 
                             let search_response_string = serde_json::to_string(&search_response)
                                 .expect("Failed to serialize search response");
@@ -271,18 +280,20 @@ Answer with the language used in the question."
             }
 
             let best_snippets = Arc::new(tokio::sync::Mutex::new(best_snippets));
-            let mut queries = vec![query];
+            let mut queries = vec![query.clone()];
             related_queries
                 .into_iter()
                 .for_each(|q| queries.push(SearchRequest { query: q }));
 
             {
                 let queries = queries.clone();
+                let user_query = query;
                 for (idx, query) in queries.into_iter().enumerate() {
                     let query_embedding = query_embedding.clone();
                     let sender = sender.clone();
                     let best_snippets = Arc::clone(&best_snippets);
                     let need_to_respond = Arc::clone(&need_to_respond);
+                    let user_query = user_query.clone();
                     tokio::spawn(async move {
                         let results = search::query_ddg(
                             &query.query,
@@ -313,7 +324,11 @@ Answer with the language used in the question."
                         );
 
                         let mut join_set = tokio::task::JoinSet::new();
-                        for (url, title, desc) in results.into_iter() {
+                        for result in results.into_iter() {
+                            let url = result.url;
+                            let title = result.title;
+                            let desc = result.body;
+
                             let entry = Entry {
                                 score: 0.0,
                                 url: url.clone(),
@@ -362,7 +377,7 @@ Answer with the language used in the question."
                                         need_to_respond.store(false, Ordering::Relaxed);
                                         spawn_lm_thread(
                                             sender.clone(),
-                                            query.clone(),
+                                            user_query.clone(),
                                             lock.clone(),
                                         )
                                         .await;
@@ -391,6 +406,7 @@ Answer with the language used in the question."
                                 let search_response = SearchResponse {
                                     results: vec![entry_with_score],
                                     summary: String::new(),
+                                    summary_context: None,
                                 };
                                 let response_str = serde_json::to_string(&search_response).unwrap();
                                 sender
@@ -416,7 +432,7 @@ Answer with the language used in the question."
                             need_to_respond.store(false, Ordering::Relaxed);
                             spawn_lm_thread(
                                 sender.clone(),
-                                query,
+                                user_query,
                                 best_snippets.lock().await.clone(),
                             )
                             .await;
@@ -444,10 +460,56 @@ Answer with the language used in the question."
             })
             .collect(),
         summary: String::new(),
+        summary_context: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
     sender.send(json).await.expect("Failed to send response");
+
+    stream::unfold(receiver, |mut receiver| async move {
+        receiver
+            .recv()
+            .await
+            .map(|item| (Ok(item + "\n\n"), receiver))
+    })
+}
+
+async fn handle_chat_request(
+    message: String,
+    context: Vec<i32>,
+) -> impl Stream<Item = Result<String, Infallible>> {
+    let (sender, mut receiver) = mpsc::channel(8);
+    let sender = Arc::new(sender); // Create an Arc to share the sender across threads
+
+    tokio::spawn(async move {
+        let mut response_stream = G_OLLAMA
+            .generate_stream(
+                GenerationRequest::new(SEARCH_MODEL.to_string(), message)
+                    .context(GenerationContext { 0: context }),
+            )
+            .await
+            .expect("Failed to generate response");
+
+        while let Some(response) = response_stream.next().await {
+            if let Ok(response) = response {
+                let mut chat_response = ChatResponse {
+                    response: response.iter().map(|c| c.response.clone()).collect(),
+                    context: None,
+                };
+
+                for chunk in response.iter() {
+                    if chunk.context.is_some() {
+                        chat_response.context = Some(chunk.context.clone().unwrap().0);
+                    }
+                }
+
+                let response_json = serde_json::to_string(&chat_response)
+                    .expect("Failed to serialize response");
+
+                sender.send(response_json).await.unwrap();
+            }
+        }
+    });
 
     stream::unfold(receiver, |mut receiver| async move {
         receiver
@@ -488,12 +550,26 @@ async fn main() {
             //Ok::<_, Infallible>(warp::reply::json(&response))
         });
 
+    let chat_router = warp::path!("chat")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(|query: serde_json::Value| async move {
+            let query: ChatRequest = serde_json::from_value(query).unwrap(); // Assuming you have a struct for the request body
+            info!("Received chat request: {:?}", query);
+
+            let res_stream = handle_chat_request(query.message, query.context).await;
+            let body = warp::hyper::Body::wrap_stream(res_stream);
+            let response = warp::http::Response::new(body);
+
+            Ok(response) as Result<_, Infallible>
+        });
+
     let cors = warp::cors()
         .allow_any_origin() // You can specify a particular origin here if needed
         .allow_headers(vec!["Content-Type", "Authorization"])
         .allow_methods(&[warp::http::Method::GET, warp::http::Method::POST]);
 
-    let routes = search_router.with(cors);
+    let routes = search_router.or(chat_router).with(cors);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 }

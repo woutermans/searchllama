@@ -84,6 +84,7 @@ pub struct WebsiteEmbedding {
     pub embeddings: Vec<Vec<f64>>,
     pub texts: Vec<String>,
     pub images: Vec<(String, String)>,
+    pub link: String,
 }
 
 pub async fn get_website_embedding(
@@ -152,8 +153,15 @@ pub async fn get_website_embedding(
             images: image_data
                 .into_iter()
                 .map(|x| (x.0, x.1.unwrap_or_default()))
-                .filter(|x| !x.0.len() > 256)
+                .filter(|x| {
+                    x.0.len() < 256
+                        && !x.0.is_empty()
+                        && x.1.len() < 256
+                        && !x.1.is_empty()
+                        && x.0.starts_with("http")
+                })
                 .collect(),
+            link: url.to_string(),
         };
 
         Ok(embedding)

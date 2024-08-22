@@ -15,6 +15,7 @@ use playwright::{
 };
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinSet;
 use tqdm::tqdm;
 
 use crate::{
@@ -36,23 +37,24 @@ lazy_static! {
     static ref OLLAMA: ollama_rs::Ollama = ollama_rs::Ollama::new("http://192.168.1.199", 11434);
 }
 
+lazy_static! {
+    static ref DDG_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::new(1);
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchResult {
+    pub url: String,
+    pub title: String,
+    pub body: String,
+}
 #[io_cached(
     map_error = r##" | e | { format!("Failed to cache: {}", e) }"##,
     disk = true,
     convert = r#"{ format!("{}{}", query, max_results) }"#,
-    ty = "DiskCache<String, Vec<(String, String, String)>>"
+    ty = "DiskCache<String, Vec<SearchResult>>"
 )]
-pub async fn query_ddg(
-    query: &str,
-    max_results: usize,
-) -> Result<Vec<(String, String, String)>, String> {
-    let mut titles = Vec::new();
-    let mut urls = Vec::new();
-    let mut bodies = Vec::new();
-
-    lazy_static! {
-        static ref DDG_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::new(1);
-    }
+pub async fn query_ddg(query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+    let mut outputs = Vec::new();
 
     let _permit = DDG_SEMAPHORE.acquire().await.unwrap();
 
@@ -73,19 +75,65 @@ pub async fn query_ddg(
 
         let results: Vec<HashMap<String, String>> =
             code.call1((query, max_results)).unwrap().extract().unwrap();
-        titles = results.iter().map(|r| r["title"].clone()).collect();
-        urls = results.iter().map(|r| r["href"].clone()).collect();
-        bodies = results.iter().map(|r| r["body"].clone()).collect();
+
+        outputs.extend(results.into_iter().map(|r| SearchResult {
+            url: r["href"].to_string(),
+            title: r["title"].to_string(),
+            body: r["body"].to_string(),
+        }));
 
         //info!("Results: {:?}", results);
     });
 
-    Ok(titles
-        .into_iter()
-        .zip(urls.into_iter())
-        .zip(bodies.into_iter())
-        .map(|((title, url), body)| (url, title, body))
-        .collect())
+    Ok(outputs)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ImageSearchResult {
+    pub img_url: String,
+    pub title: String,
+}
+#[io_cached(
+    map_error = r##" | e | { format!("Failed to cache: {}", e) }"##,
+    disk = true,
+    convert = r#"{ format!("{}{}", query, max_results) }"#,
+    ty = "DiskCache<String, Vec<ImageSearchResult>>"
+)]
+pub async fn query_ddg_images(
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<ImageSearchResult>, String> {
+    let mut results = Vec::new();
+
+    let _permit = DDG_SEMAPHORE
+        .acquire()
+        .await
+        .expect("Failed to acquire semaphore");
+
+    Python::with_gil(|py| {
+        let code = PyModule::from_code_bound(
+            py,
+            "def gert(query, max_results):
+    from duckduckgo_search import DDGS
+    with DDGS() as ddgs:
+        search_results = ddgs.images(query, max_images=max_results)
+        return search_results",
+            "",
+            "",
+        )
+        .expect("Failed to create Python module")
+        .getattr("gert")
+        .expect("Failed to get function");
+
+        let r: Vec<HashMap<String, String>> =
+            code.call1((query, max_results)).unwrap().extract().unwrap();
+        results.extend(r.into_iter().map(|r| ImageSearchResult {
+            img_url: r["image"].clone(),
+            title: r["title"].clone(),
+        }));
+    });
+
+    Ok(results)
 }
 
 pub fn calculate_entry_similarity(
@@ -107,6 +155,8 @@ pub struct SnippetInfo {
     pub text: String,
     pub score: Option<f64>,
     pub images: Vec<(String, String)>,
+    pub title: Option<String>,
+    pub url: Option<String>,
 }
 pub async fn get_best_matching_snippet(
     url: &str,
@@ -134,6 +184,8 @@ pub async fn get_best_matching_snippet(
         text: best_chunk.2,
         score: Some(best_chunk.0),
         images: web_embedding.images,
+        title: None,
+        url: None
     };
 
     #[async_recursion]
@@ -164,6 +216,8 @@ pub async fn get_best_matching_snippet(
             text: best_chunk.2,
             score: Some(best_chunk.0),
             images: current_chunk.images.clone(),
+            title: None,
+            url: None
         };
         *current_chunk = best_chunk;
 
@@ -188,6 +242,7 @@ pub async fn get_best_matching_snippet(
 pub async fn get_best_matching_snippets(
     query: &[f64],
     urls: &[String],
+    titles: &[String],
     pw_context: Option<Arc<BrowserContext>>,
 ) -> Result<Vec<SnippetInfo>, String> {
     let mut pw = None;
@@ -226,9 +281,25 @@ pub async fn get_best_matching_snippets(
         }
     };
 
-    let mut snippets = Vec::new();
+    let mut join_set = JoinSet::new();
     for url in urls.iter() {
-        snippets.push(get_best_matching_snippet(&url, query, pw_context.clone()).await?);
+        let url = url.to_string();
+        let query = query.to_vec();
+        let pw_context = pw_context.clone();
+        join_set.spawn(
+            async move { get_best_matching_snippet(&url, &query, pw_context.clone()).await },
+        );
+    }
+
+    let mut snippets = Vec::new();
+    let mut idx = 0;
+    while let Some(result) = join_set.join_next().await {
+        if let Ok(Ok(mut snippet)) = result {
+            snippet.title = Some(titles[idx].clone());
+            snippet.url = Some(urls[idx].clone());
+            snippets.push(snippet);
+        }
+        idx += 1;
     }
 
     // Sort the snippets by their score
@@ -240,9 +311,12 @@ pub async fn get_best_matching_snippets(
             .reverse()
     });
 
-    pw_context.close().await;
+    pw_context
+        .close()
+        .await
+        .expect("Failed to close Playwright context");
     if let Some(browser) = browser {
-        browser.close().await;
+        browser.close().await.expect("Failed to close browser");
     }
 
     Ok(snippets)

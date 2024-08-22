@@ -18,4 +18,17 @@ pub struct Entry {
 pub struct SearchResponse {
     pub results: Vec<Entry>,
     pub summary: String,
+    pub summary_context: Option<Vec<i32>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatRequest {
+    pub message: String,
+    pub context: Vec<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatResponse {
+    pub response: String,
+    pub context: Option<Vec<i32>>,
 }
