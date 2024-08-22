@@ -167,10 +167,10 @@ pub async fn get_website_embedding(
         Ok(embedding)
     }
 
-    let _permit = PW_SEMAPHORE
-        .acquire()
-        .await
-        .expect("Failed to acquire semaphore");
+    // let _permit = PW_SEMAPHORE
+    //     .acquire()
+    //     .await
+    //     .expect("Failed to acquire semaphore");
 
     get_website_embedding_cached(url.clone(), pw_context).await
 }

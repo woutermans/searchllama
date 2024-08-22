@@ -35,11 +35,6 @@ async fn get_db_pool() -> DBWrapper {
                 body_embedding_count INTEGER,
                 body_embeddings BLOB,
                 summary TEXT
-        );
-        CREATE TABLE IF NOT EXISTS image_indices (
-            url TEXT NOT NULL UNIQUE,
-            description TEXT,
-            description_embedding BLOB,
         )
         ",
         )
