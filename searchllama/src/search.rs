@@ -106,6 +106,7 @@ pub struct SnippetInfo {
     pub embedding: Vec<f64>,
     pub text: String,
     pub score: Option<f64>,
+    pub images: Vec<(String, String)>,
 }
 pub async fn get_best_matching_snippet(
     url: &str,
@@ -132,6 +133,7 @@ pub async fn get_best_matching_snippet(
         embedding: best_chunk.1,
         text: best_chunk.2,
         score: Some(best_chunk.0),
+        images: web_embedding.images,
     };
 
     #[async_recursion]
@@ -161,6 +163,7 @@ pub async fn get_best_matching_snippet(
             embedding: best_chunk.1,
             text: best_chunk.2,
             score: Some(best_chunk.0),
+            images: current_chunk.images.clone(),
         };
         *current_chunk = best_chunk;
 

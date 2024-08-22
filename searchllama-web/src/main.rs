@@ -10,6 +10,39 @@ use yew::prelude::*;
 use yew_markdown::Markdown;
 use yew_router::prelude::*;
 
+static MARKDOWN_SOURCE: &str = r#"
+## Code
+```rust
+fn main() {
+    println!("hello world !")
+}
+```
+
+## Math
+1) $1+1=2$
+
+2) $e^{i\pi}+1=0$
+
+3)
+$$\int_0^{+\infty}\dfrac{\sin(t)}{t}\,dt=\dfrac{\sqrt{\pi}}{2}$$
+
+
+## Links and images
+![](https://raw.githubusercontent.com/wooorm/markdown-rs/8924580/media/logo-monochromatic.svg?sanitize=true)
+
+for markdown documentation, see https://github.com/wooorm/markdown or [here](https://commonmark.org/help/)
+
+## Style
+| unstyled | styled    |
+| :-----:  | ------    |
+| bold     | **bold**  |
+| italics  | *italics* |
+| strike   | ~strike~  |
+
+> Hey, I am a quote !
+> - I don't like numbers
+"#;
+
 const API_URL: &str = "http://localhost:3030";
 
 lazy_static! {
@@ -160,6 +193,7 @@ fn home(props: &HomeProps) -> Html {
         false => "".to_string(),
     };
     let query = use_state(|| query_param.to_string());
+    let markdown_switch = use_state(|| false); // TODO: Remove this and use the markdown switch from props instead
     if !query_param.is_empty() && state.entries.len() == 0 {
         info!("Home component rendered with query: {}", &query_param);
         let query = query.clone();
@@ -174,6 +208,17 @@ fn home(props: &HomeProps) -> Html {
         Callback::from(move |e: InputEvent| {
             let input: HtmlInputElement = e.target_unchecked_into(); // Convert event target into HtmlInputElement
             query.set(input.value());
+        })
+    };
+
+    let on_switch = {
+        let markdown_switch = markdown_switch.clone();
+        Callback::from(move |e: InputEvent| {
+            info!("Markdown Switch changed to {}", !*markdown_switch); // TODO: Remove this and use the markdown switch from props instead
+
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let checked = input.checked(); // Get the checked state directly
+            markdown_switch.set(checked);
         })
     };
 
@@ -223,8 +268,20 @@ fn home(props: &HomeProps) -> Html {
                 {if !state.summary.is_empty(){
                     html! {
                         <div class="summary-container">
+                            <div class="toggle-container">
+                                <input type="checkbox" id="toggle-switch" class="toggle-switch" oninput={on_switch}/>
+                                <label for="toggle-switch" class="toggle-label">
+                                    <span class="toggle-text markdown-text">{"Markdown"}</span>
+                                    <span class="toggle-text raw-text">{"Raw"}</span>
+                                </label>
+                            </div>
                             <div class="summary-text">
-                                <Markdown src={state.summary.clone()}/>
+                                //<Markdown src={MARKDOWN_SOURCE}/>
+                                {if !*markdown_switch {
+                                    html! {<Markdown src={state.summary.clone()}/>}
+                                } else{
+                                    html!{{format!("{:?}", &state.summary)}}
+                                }}
                             </div>
                         </div>
                     }

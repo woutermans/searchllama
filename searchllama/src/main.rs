@@ -70,11 +70,77 @@ async fn handle_search_request(
                     GenerationRequest::new(
                         SEARCH_MODEL.to_string(),
                         format!(
-                            "Does the person want an ai generated answer based on this search query or just a website: '{}'?",
+                            "
+Does the person want ai assitance based on this search query or just a website: '{}'\n\n
+Examples of queries that need an ai generated answer: 
+    - What is the best way to learn rust
+    - How do I get a job as a software engineer
+    - Where is my local bank
+    - Why is this website not working
+    - Who is the best basketball player in the world
+    - Wat is de beste manier om RUST te leren
+    - Hoe kom ik aan een baan als software engineer
+    - Waar is mijn lokale winkel
+    - Waarom werkt deze website niet
+    - Wie is de beste basketballer ter wereld
+    - Rustをベストに学ぶ方法は何ですか
+    - ソフトウェアエンジニアとしての仕事を手に入れるにはどうすればよいですか
+    - 私の近くの店はどこですか
+    - このウェブサイトが動作しないのはなぜですか
+    - 世界で一番良いバスケットボール選手は誰ですか
+    - Wie lerne ich Rust am besten
+    - Wie kann ich als Software-Engineer arbeiten
+    - Wo ist mein lokales Geschäft
+    - Warum funktioniert diese Website nicht
+    - Wer ist der beste Basketballspieler der Welt
+    - Quelle est la meilleure façon d'apprendre RUST
+    - Comment puis-je trouver un emploi en tant que ingénieur logiciel
+    - Où se trouve mon magasin local
+    - Pourquoi ce site Web ne fonctionne-t-il pas
+    - Qui est le meilleur joueur de basket-ball du monde
+    - .entry-score p {{     margin: 0;     font-size: 0.9em;     color: #777; }}
+
+Examples of queries that do not need an ai generated answer: 
+    - Youtube
+    - Google
+    - Bing
+    - Reddit
+    - Rust wiki
+    - Stackoverflow
+    - llama3 huggingface
+    - Python Documentation
+    - PHP manual
+    - Rust documentation
+    - Facebook
+    - Twitter
+    - Instagram
+    - LinkedIn
+    - Pinterest
+    - TikTok
+    - clothing aliexpress
+    - WhatsApp
+    - Telegram
+    - Discord
+    - Quora
+    - Medium
+    - Tumblr
+    - GitHub
+    - GitLab
+    - Bitbucket
+    - Amazon
+    - eBay
+    - Etsy
+    - Alibaba
+\n
+If the question is in another language than English, translate it to English first.\n\n
+                            ",
                             &query.query
                         ),
                     )
-                    .system("only answer with 'anwer' or 'website'".to_string()),
+                    .system(
+                        "You are a helpful assistant. only answer with 'anwer' or 'website'"
+                            .to_string(),
+                    ),
                 )
                 .await
                 .unwrap()
@@ -108,19 +174,31 @@ async fn handle_search_request(
                 best_snippets: Vec<search::SnippetInfo>,
             ) {
                 let sender = sender.clone();
-                let best_snippets = best_snippets
-                    .into_iter()
-                    .map(|s| s.text)
-                    .collect::<Vec<String>>();
+                let best_snippets = best_snippets.clone();
                 let query = query.clone();
                 tokio::spawn(async move {
+                    let snippets = best_snippets
+                        .iter()
+                        .map(|entry| entry.text.clone())
+                        .collect::<Vec<String>>();
+                    let images = best_snippets
+                        .iter()
+                        .map(|entry| entry.images.clone())
+                        .flatten()
+                        .collect::<Vec<(String, String)>>();
                     let prompt = format!(
-                        "{}\n\n\n\n Question: '{}'.\n\n Use nice formatting",
-                        best_snippets.join("\n\n"),
+"Sources:\n\"{}\"\n\n
+Images:\n{}\n\n
+Anwer this question: '{}'.",
+                        snippets.join("\n\n"),
+                        images
+                            .iter()
+                            .map(|(url, desc)| format!("- {} [{}]\n", url, desc))
+                            .collect::<String>(),
                         query.query
                     );
 
-                    debug!("Prompt: {}", prompt);
+                    info!("Prompt: {}", prompt);
 
                     let mut response_stream = G_OLLAMA
                     .generate_stream(
@@ -129,10 +207,42 @@ async fn handle_search_request(
                             prompt,
                         )
                         .system(
-                            "You are a helpful assistant.\n You are given a list of snippets from the internet and a question.\n You must answer the question based on the snippets whithout mentioning that you received snippets from the internet.\n Answer with the language used in the question"
+"You are a helpful assistant.
+You are given a list of snippets from the internet and a question.
+You must answer the question based on the snippets whithout mentioning that you received snippets from the internet.
+Use correct formatting.
+Examples of correct formatting:
+## Code
+```rust
+fn main() {{
+    println!(\"hello world !\")
+}}
+```
+
+## Math
+1) $1+1=2$
+
+2) $e^{{i\\pi}}+1=0$
+
+3)
+$$\\int_0^{{+\\infty}}\\dfrac{{\\sin(t)}}{{t}}\\,dt=\\dfrac{{\\sqrt{{\\pi}}}}{{2}}$$
+
+## Links and images
+![](https://raw.githubusercontent.com/wooorm/markdown-rs/8924580/media/logo-monochromatic.svg?sanitize=true)
+
+## Style
+| unstyled | styled    |
+| :-----:  | ------    |
+| bold     | **bold**  |
+| italics  | *italics* |
+| strike   | ~strike~  |
+
+> Hey, I am a quote !
+> - I don't like numbers
+Answer with the language used in the question."
                                 .to_string()
                         )
-                        .options(GenerationOptions::default().temperature(0.1)),
+                        .options(GenerationOptions::default()),
                     ).await.expect("Failed to generate response");
 
                     while let Some(response) = response_stream.next().await {
@@ -190,7 +300,7 @@ async fn handle_search_request(
                         let chromium = pw.chromium();
                         let browser = chromium
                             .launcher()
-                            .headless(false)
+                            .headless(true)
                             .launch()
                             .await
                             .expect("Failed to launch browser");

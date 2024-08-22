@@ -2,7 +2,8 @@ body {
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-    background-color: #f0f0f0;
+    background-color: #121212;
+    color: #e0e0e0;
 }
 
 .search-page {
@@ -20,10 +21,10 @@ body {
 
 .entry {
     margin-bottom: 15px;
-    padding: 10px;
-    background-color: #fff;
+    padding: 15px;
+    background-color: #1e1e1e;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .summary-container {
@@ -32,17 +33,17 @@ body {
     align-items: flex-start;
     justify-content: center;
     padding: 2em;
-    background-color: #fff;
+    background-color: #1e1e1e;
     margin-bottom: 15px;
     padding: 10px;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
     font-size: larger;
 }
 
 .summary-text {
     padding-left: 10%;
-    padding-right: 10%
+    padding-right: 10%;
 }
 
 .entry-header {
@@ -52,7 +53,7 @@ body {
 
 .entry-title a {
     font-weight: bold;
-    color: #007BFF;
+    color: #8ab4f8;
     text-decoration: none;
 }
 
@@ -62,7 +63,7 @@ body {
 
 .entry-url p {
     margin: 0;
-    color: #555;
+    color: #999;
     margin-left: 10px;
     font-size: 0.9em;
 }
@@ -74,42 +75,129 @@ body {
 .entry-score p {
     margin: 0;
     font-size: 0.9em;
-    color: #777;
+    color: #bbb;
 }
 
 .entry-description p {
     margin: 10px 0 0;
-    color: #333;
+    color: #ddd;
     font-size: 1em;
+    padding-right: 30%;
 }
 
 .search-bar-container {
     display: flex;
     align-items: center;
     padding: 10px;
-    background-color: #fff;
-    border-top: 1px solid #ddd;
-    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
+    background-color: #1e1e1e;
+    border-top: 1px solid #333;
+    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .search-bar {
     flex-grow: 1;
     padding: 10px;
     font-size: 1em;
-    border: 1px solid #ddd;
+    border: 1px solid #333;
+    background-color: #2b2b2b;
+    color: #e0e0e0;
     border-radius: 4px;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
     margin-left: 4em;
     margin-right: 4em;
 }
 
 .search-bar:focus {
     outline: none;
-    border-color: #007BFF;
+    border-color: #8ab4f8;
 }
 
 .loading-gif {
     width: 30px;
     height: 30px;
     margin-right: 4em;
+}
+
+/* Container for the toggle button */
+.toggle-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+/* Hidden checkbox input */
+.toggle-switch {
+    display: none;
+}
+
+/* Label for the toggle switch */
+.toggle-label {
+    position: relative;
+    width: 150px;
+    height: 40px;
+    background-color: #2b2b2b;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+}
+
+/* Circle inside the toggle */
+.toggle-label::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 10px;
+    transform: translateY(-50%);
+    width: 60px;
+    height: 30px;
+    background-color: #8ab4f8;
+    border-radius: 15px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Text on the left and right */
+.toggle-text {
+    font-size: 1em;
+    color: #e0e0e0;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 1;
+}
+
+/* Markdown text on the left */
+.markdown-text {
+    margin-right: auto;
+}
+
+/* Raw text on the right */
+.raw-text {
+    margin-left: auto;
+    opacity: 0.5;
+}
+
+/* When toggle is checked, move the circle and adjust text opacity and circle size */
+.toggle-switch:checked + .toggle-label::before {
+    transform: translateY(-50%) translateX(104px);
+    width: 50px;
+    height: 30px;
+}
+
+.toggle-switch:checked + .toggle-label .markdown-text {
+    opacity: 0.5;
+}
+
+.toggle-switch:checked + .toggle-label .raw-text {
+    opacity: 1;
+}
+
+.toggle-switch:not(:checked) + .toggle-label::before {
+    width: 100px;
+    height: 30px;
+    left: 6px;
 }

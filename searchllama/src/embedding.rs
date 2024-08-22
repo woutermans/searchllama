@@ -38,13 +38,33 @@ pub struct LargeEmbedding {
     pub embeddings: Vec<Vec<f64>>,
     pub texts: Vec<String>,
 }
-pub async fn generate_large_embedding(text: &str, chunk_size: Option<usize>) -> Result<LargeEmbedding, String> {
+pub async fn generate_large_embedding(
+    text: &str,
+    chunk_size: Option<usize>,
+) -> Result<LargeEmbedding, String> {
     let chunk_size = chunk_size.unwrap_or(MAX_EMBEDDING_SIZE);
     let chars = text.chars().collect::<Vec<char>>();
-    let char_chunks = chars
-        .chunks(chunk_size)
-        .map(|c| c.iter().collect::<String>())
-        .collect::<Vec<String>>();
+    let mut char_chunks: Vec<String> = Vec::new();
+    let mut start_idx = 0;
+
+    while start_idx < chars.len() {
+        let end_idx = std::cmp::min(start_idx + chunk_size, chars.len());
+        let mut split_idx = end_idx;
+
+        // Try to find a whitespace within the last chunk
+        if end_idx < chars.len() {
+            if let Some(whitespace_idx) = chars[start_idx..end_idx]
+                .iter()
+                .rposition(|&c| c.is_whitespace())
+            {
+                split_idx = start_idx + whitespace_idx + 1; // +1 to include the whitespace in the current chunk
+            }
+        }
+
+        let chunk = chars[start_idx..split_idx].iter().collect::<String>();
+        char_chunks.push(chunk);
+        start_idx = split_idx;
+    }
 
     let mut embeddings: Vec<Vec<f64>> = Vec::new();
     for chunk in char_chunks.clone() {
@@ -63,6 +83,7 @@ pub struct WebsiteEmbedding {
     pub url: String,
     pub embeddings: Vec<Vec<f64>>,
     pub texts: Vec<String>,
+    pub images: Vec<(String, String)>,
 }
 
 pub async fn get_website_embedding(
@@ -108,6 +129,19 @@ pub async fn get_website_embedding(
             .await
             .map_err(|e| format!("Failed to evaluate JS: {}", e))?;
 
+        let image_data: Vec<(String, Option<String>)> = page
+            .eval(
+                "
+                Array.from(document.querySelectorAll('img')).map((img) => {
+                    return [img.src, img.alt || img.title || null];
+                })
+            ",
+            )
+            .await
+            .map_err(|e| format!("Failed to evaluate JS: {}", e))?;
+
+        //info!("image links: {:?}", image_data);
+
         page.close(None).await.expect("Failed to close page");
 
         let res = generate_large_embedding(&text_content, None).await?;
@@ -115,6 +149,11 @@ pub async fn get_website_embedding(
             embeddings: res.embeddings,
             url: url.to_string(),
             texts: res.texts,
+            images: image_data
+                .into_iter()
+                .map(|x| (x.0, x.1.unwrap_or_default()))
+                .filter(|x| !x.0.len() > 256)
+                .collect(),
         };
 
         Ok(embedding)
