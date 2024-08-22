@@ -9,6 +9,7 @@ use web_sys::HtmlInputElement; // Import the HtmlInputElement type
 use yew::prelude::*;
 use yew_markdown::Markdown;
 use yew_router::prelude::*;
+use yew_hooks::prelude::*;
 
 static MARKDOWN_SOURCE: &str = r#"
 ## Code
@@ -69,6 +70,8 @@ struct Model {
 
 #[function_component(Home)]
 fn home(props: &HomeProps) -> Html {
+    use_favicon("./src/favicon.ico".to_string());
+
     let state = use_state(|| Model {
         entries: Vec::new(),
         summary: String::new(),

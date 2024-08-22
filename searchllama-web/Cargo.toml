@@ -16,3 +16,4 @@ web-sys = "^0.3"
 yew-router = "^0.18"
 log = "^0.4"
 console_log = "^1"
+yew-hooks = { version = "^0.3" }
