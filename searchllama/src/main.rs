@@ -23,7 +23,7 @@ use ollama_rs::{
 use playwright::{api::BrowserType, Playwright};
 use pollster::FutureExt;
 use search::calculate_entry_similarity;
-use searchllama_types::{ChatRequest, ChatResponse, Entry, SearchRequest, SearchResponse};
+use searchllama_types::types::{ChatRequest, ChatResponse, Entry, SearchRequest, SearchResponse};
 use tokio::sync::mpsc::{self, Sender};
 use warp::Filter;
 
@@ -34,6 +34,7 @@ mod search;
 pub const MAX_ENTRIES: usize = 50;
 pub const EMBEDDING_MODEL: &str = "nomic-embed-text:latest";
 pub const SEARCH_MODEL: &str = "llama3.1:latest";
+pub const JUDGEMENT_MODEL: &str = "llama3.1:latest";
 pub const MAX_EMBEDDING_SIZE: usize = 1024;
 pub const SNIPPET_TARGET_SIZE: usize = 512;
 pub const SNIPPET_NUMBER: usize = 10;
@@ -46,9 +47,13 @@ lazy_static! {
 async fn handle_search_request(
     query: SearchRequest,
 ) -> impl Stream<Item = Result<String, Infallible>> {
-    let query_embedding = embedding::generate_embedding(&query.query)
-        .await
-        .expect("Failed to generate embedding");
+    let query_embedding = embedding::generate_embedding(&format!(
+        "{} ({})",
+        query.query,
+        chrono::Local::now().to_rfc3339()
+    ))
+    .await
+    .expect("Failed to generate embedding");
 
     let mut results = database::query_db(&query_embedding).await;
 
@@ -70,97 +75,36 @@ async fn handle_search_request(
             .collect::<Vec<String>>();
         tokio::spawn(async move {
             let related_queries = G_OLLAMA.generate(
-        GenerationRequest::new(SEARCH_MODEL.to_string(), format!("Generate search queries for: {}", query.query))
+        GenerationRequest::new(JUDGEMENT_MODEL.to_string(), format!("Generate search queries for: {}", query.query))
                     .system("You are a helpful assistant. Show each query on a new line. without any explanation or numbering.".to_string())
                 ).await.unwrap().response.split('\n').filter(|q| !q.is_empty()).map(|q| q.trim().to_string()).collect::<Vec<String>>();
 
-            let explanation_needed_string = G_OLLAMA
-                .generate(
-                    GenerationRequest::new(
-                        SEARCH_MODEL.to_string(),
-                        format!(
-                            "
-Does the person want ai assitance based on this search query or just a website: '{}'\n\n
-Examples of queries that need an ai generated answer: 
-    - What is the best way to learn rust
-    - How do I get a job as a software engineer
-    - Where is my local bank
-    - Why is this website not working
-    - Who is the best basketball player in the world
-    - Wat is de beste manier om RUST te leren
-    - Hoe kom ik aan een baan als software engineer
-    - Waar is mijn lokale winkel
-    - Waarom werkt deze website niet
-    - Wie is de beste basketballer ter wereld
-    - Rustをベストに学ぶ方法は何ですか
-    - ソフトウェアエンジニアとしての仕事を手に入れるにはどうすればよいですか
-    - 私の近くの店はどこですか
-    - このウェブサイトが動作しないのはなぜですか
-    - 世界で一番良いバスケットボール選手は誰ですか
-    - Wie lerne ich Rust am besten
-    - Wie kann ich als Software-Engineer arbeiten
-    - Wo ist mein lokales Geschäft
-    - Warum funktioniert diese Website nicht
-    - Wer ist der beste Basketballspieler der Welt
-    - Quelle est la meilleure façon d'apprendre RUST
-    - Comment puis-je trouver un emploi en tant que ingénieur logiciel
-    - Où se trouve mon magasin local
-    - Pourquoi ce site Web ne fonctionne-t-il pas
-    - Qui est le meilleur joueur de basket-ball du monde
-    - .entry-score p {{     margin: 0;     font-size: 0.9em;     color: #777; }}
+//             let explanation_needed_string = G_OLLAMA
+//                 .generate(
+//                     GenerationRequest::new(
+//                         JUDGEMENT_MODEL.to_string(),
+//                         format!(
+//                             "
+// Does the following query want expect an explanation?\n\nQuery: {}
+//                             ",
+//                             &query.query
+//                         ),
+//                     )
+//                     .system(
+//                         "Only answer with 'yes' or 'no'".to_string()
+//                     ),
+//                 )
+//                 .await
+//                 .unwrap()
+//                 .response
+//                 .to_lowercase()
+//                 .trim()
+//                 .to_owned();
 
-Examples of queries that do not need an ai generated answer: 
-    - Youtube
-    - Google
-    - Bing
-    - Reddit
-    - Rust wiki
-    - Stackoverflow
-    - llama3 huggingface
-    - Python Documentation
-    - PHP manual
-    - Rust documentation
-    - Facebook
-    - Twitter
-    - Instagram
-    - LinkedIn
-    - Pinterest
-    - TikTok
-    - clothing aliexpress
-    - WhatsApp
-    - Telegram
-    - Discord
-    - Quora
-    - Medium
-    - Tumblr
-    - GitHub
-    - GitLab
-    - Bitbucket
-    - Amazon
-    - eBay
-    - Etsy
-    - Alibaba
-\n
-If the question is in another language than English, translate it to English first.\n\n
-                            ",
-                            &query.query
-                        ),
-                    )
-                    .system(
-                        "You are a helpful assistant. only answer with 'anwer' or 'website'"
-                            .to_string(),
-                    ),
-                )
-                .await
-                .unwrap()
-                .response
-                .to_lowercase()
-                .trim()
-                .to_owned();
+//             info!("Explanation needed: {}", explanation_needed_string);
 
-            info!("Explanation needed: {}", explanation_needed_string);
-
-            let explanation_needed = !explanation_needed_string.contains("website");
+//             let explanation_needed = !explanation_needed_string.contains("no");
+            let explanation_needed = true;
 
             info!("Related queries: {:?}", related_queries);
 
@@ -208,6 +152,7 @@ If the question is in another language than English, translate it to English fir
                         .collect::<Vec<(String, String)>>();
                     let prompt = format!(
                         "Sources:\n\"{}\"\n\n
+local current time: {}\n\n
 Anwer this question: '{}'.",
                         snippets.join("\n\n"),
                         // images
@@ -215,6 +160,7 @@ Anwer this question: '{}'.",
                         // .rev()
                         // .map(|(url, desc)| format!("- {}: '{}'\n", desc, url))
                         // .collect::<String>(),
+                        chrono::Local::now().to_rfc2822(),
                         query.query
                     );
 
@@ -226,14 +172,17 @@ Anwer this question: '{}'.",
                             SEARCH_MODEL.to_string(),
                             prompt,
                         )
-                        .system(
+                        .system(format!(
 "You are a helpful assistant.
 You are given a list of snippets from the internet and a question.
 You must answer the question based on the snippets whithout mentioning that you received snippets from the internet.
 Use correct markdown formatting.
 Answer with the language used in the question.
-only use emojis for country flags."
-                                .to_string()
+only use emojis for country flags.
+Use the local current time as a reference point in your answer and if asked for time for example.
+If you don't know the answer, say 'I don't know'.
+",
+                        )
                         )
                         .options(GenerationOptions::default()),
                     ).await.expect("Failed to generate response");
@@ -470,7 +419,7 @@ only use emojis for country flags."
         receiver
             .recv()
             .await
-            .map(|item| (Ok(item + "\n\n"), receiver))
+            .map(|item| (Ok(item + "\t"), receiver))
     })
 }
 
@@ -503,8 +452,8 @@ async fn handle_chat_request(
                     }
                 }
 
-                let response_json = serde_json::to_string(&chat_response)
-                    .expect("Failed to serialize response");
+                let response_json =
+                    serde_json::to_string(&chat_response).expect("Failed to serialize response");
 
                 sender.send(response_json).await.unwrap();
             }
@@ -515,7 +464,7 @@ async fn handle_chat_request(
         receiver
             .recv()
             .await
-            .map(|item| (Ok(item + "\n\n"), receiver))
+            .map(|item| (Ok(item + "\t"), receiver))
     })
 }
 
@@ -537,8 +486,7 @@ async fn main() {
     let search_router = warp::path!("search")
         .and(warp::post())
         .and(warp::body::json())
-        .and_then(|query: serde_json::Value| async move {
-            let query: SearchRequest = serde_json::from_value(query).unwrap();
+        .and_then(|query: SearchRequest| async move {
             info!("Received search request: {:?}", query);
 
             let res_stream = handle_search_request(query).await;
@@ -553,8 +501,7 @@ async fn main() {
     let chat_router = warp::path!("chat")
         .and(warp::post())
         .and(warp::body::json())
-        .and_then(|query: serde_json::Value| async move {
-            let query: ChatRequest = serde_json::from_value(query).unwrap(); // Assuming you have a struct for the request body
+        .and_then(|query: ChatRequest| async move {
             info!("Received chat request: {:?}", query);
 
             let res_stream = handle_chat_request(query.message, query.context).await;
