@@ -1,5 +1,14 @@
 use yew::prelude::*;
 use yew_router::prelude::*;
+use web_sys::window;
+
+#[derive(Clone, Routable, PartialEq)]
+enum Route {
+    #[at("/")]
+    Home,
+    #[at("/:value")]
+    Value(i64),
+}
 
 struct Model {
     value: i64,
@@ -7,6 +16,7 @@ struct Model {
 
 enum Msg {
     AddOne,
+    SetValue(i64),
 }
 
 impl Component for Model {
@@ -14,8 +24,12 @@ impl Component for Model {
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {
+        let value = match Route::from_path(window().unwrap().location().pathname().unwrap().as_str()) {
+            Route::Value(val) => val,
+            _ => 0,
+        };
         Self {
-            value: 0,
+            value,
         }
     }
 
@@ -23,6 +37,10 @@ impl Component for Model {
         match msg {
             Msg::AddOne => {
                 self.value += 1;
+                true
+            }
+            Msg::SetValue(val) => {
+                self.value = val;
                 true
             }
         }
@@ -42,7 +60,14 @@ impl Component for Model {
 #[function_component(App)]
 fn app() -> Html {
     html! {
-        <Model />
+        <Router<Route, ()>
+            render = Router::render(|switch: Route| {
+                match switch {
+                    Route::Home => html! { <Model /> },
+                    Route::Value(val) => html! { <Model value={val} /> },
+                }
+            })
+        />
     }
 }
 
