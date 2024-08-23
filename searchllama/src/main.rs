@@ -33,8 +33,8 @@ mod search;
 
 pub const MAX_ENTRIES: usize = 50;
 pub const EMBEDDING_MODEL: &str = "nomic-embed-text:latest";
-pub const SEARCH_MODEL: &str = "llama3.1:latest";
-pub const JUDGEMENT_MODEL: &str = "llama3.1:latest";
+pub const SEARCH_MODEL: &str = "gemma2:2b";
+pub const JUDGEMENT_MODEL: &str = "gemma2:2b";
 pub const MAX_EMBEDDING_SIZE: usize = 1024;
 pub const SNIPPET_TARGET_SIZE: usize = 512;
 pub const SNIPPET_NUMBER: usize = 10;
@@ -79,31 +79,31 @@ async fn handle_search_request(
                     .system("You are a helpful assistant. Show each query on a new line. without any explanation or numbering.".to_string())
                 ).await.unwrap().response.split('\n').filter(|q| !q.is_empty()).map(|q| q.trim().to_string()).collect::<Vec<String>>();
 
-//             let explanation_needed_string = G_OLLAMA
-//                 .generate(
-//                     GenerationRequest::new(
-//                         JUDGEMENT_MODEL.to_string(),
-//                         format!(
-//                             "
-// Does the following query want expect an explanation?\n\nQuery: {}
-//                             ",
-//                             &query.query
-//                         ),
-//                     )
-//                     .system(
-//                         "Only answer with 'yes' or 'no'".to_string()
-//                     ),
-//                 )
-//                 .await
-//                 .unwrap()
-//                 .response
-//                 .to_lowercase()
-//                 .trim()
-//                 .to_owned();
+            //             let explanation_needed_string = G_OLLAMA
+            //                 .generate(
+            //                     GenerationRequest::new(
+            //                         JUDGEMENT_MODEL.to_string(),
+            //                         format!(
+            //                             "
+            // Does the following query want expect an explanation?\n\nQuery: {}
+            //                             ",
+            //                             &query.query
+            //                         ),
+            //                     )
+            //                     .system(
+            //                         "Only answer with 'yes' or 'no'".to_string()
+            //                     ),
+            //                 )
+            //                 .await
+            //                 .unwrap()
+            //                 .response
+            //                 .to_lowercase()
+            //                 .trim()
+            //                 .to_owned();
 
-//             info!("Explanation needed: {}", explanation_needed_string);
+            //             info!("Explanation needed: {}", explanation_needed_string);
 
-//             let explanation_needed = !explanation_needed_string.contains("no");
+            //             let explanation_needed = !explanation_needed_string.contains("no");
             let explanation_needed = true;
 
             info!("Related queries: {:?}", related_queries);
@@ -178,7 +178,7 @@ You are given a list of snippets from the internet and a question.
 You must answer the question based on the snippets whithout mentioning that you received snippets from the internet.
 Use correct markdown formatting.
 Answer with the language used in the question.
-only use emojis for country flags.
+only use emojis for country flags when needed.
 Use the local current time as a reference point in your answer and if asked for time for example.
 If you don't know the answer, say 'I don't know'.
 ",
@@ -434,7 +434,12 @@ async fn handle_chat_request(
         let mut response_stream = G_OLLAMA
             .generate_stream(
                 GenerationRequest::new(SEARCH_MODEL.to_string(), message)
-                    .context(GenerationContext { 0: context }),
+                    .context(GenerationContext { 0: context })
+                    .system(
+                        "You are a helpful assistant.
+                    If you don't know the answer, say 'I don't know'"
+                            .to_string(),
+                    ),
             )
             .await
             .expect("Failed to generate response");
